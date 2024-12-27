@@ -17,10 +17,34 @@ db_config = {
 def get_db_connection():
     return mysql.connector.connect(**db_config)
 
+#----------------------------------
+# MAIN PAGE
+# ----------------------------------
+@app.route("/")
+def main_page():
+    """
+    Main page with tabs displaying lists of random movies.
+    """
+    conn = get_db_connection()
+    cursor = conn.cursor(dictionary=True)
+    
+    # Generate random movies for each tab
+    tabs = []
+    num_tabs = 5  # Number of tabs
+    for _ in range(num_tabs):
+        cursor.execute("SELECT title, overview FROM Movies ORDER BY RAND() LIMIT 10;")
+        tabs.append(cursor.fetchall())
+
+    cursor.close()
+    conn.close()
+
+    return render_template("main.html", tabs=tabs)
+
+
 # ----------------------------------
 # LOGIN
 # ----------------------------------
-@app.route("/", methods=["GET", "POST"])
+@app.route("/login", methods=["GET", "POST"])
 def login():
     """
     Login route:
@@ -30,7 +54,7 @@ def login():
       4) Compare with hashed input password.
     """
     if request.method == "POST":
-        username = request.form['username']
+        username_or_email = request.form['username_or_email']
         password = request.form['password']
 
         # Hash the incoming password
@@ -39,39 +63,38 @@ def login():
         conn = get_db_connection()
         cursor = conn.cursor()
 
-        # Step 1: Get userId from Users
-        cursor.execute("SELECT userId FROM Users WHERE userName = %s", (username,))
-        user_row = cursor.fetchone()  # e.g. (1,) if userId = 1
+        # Check for username or email match in Users table
+        cursor.execute("""
+            SELECT userId FROM Users WHERE userName = %s OR emailAddress = %s
+        """, (username_or_email, username_or_email))
+        user_row = cursor.fetchone()
 
         if not user_row:
-            # userName not found
-            flash("Invalid username or password", "danger")
+            flash("Invalid username/email or password", "danger")
             cursor.close()
             conn.close()
-            return redirect("/")
+            return redirect("/login")
 
         user_id = user_row[0]
 
-        # Step 2: Use userId to get passwordHash from UserPasswords
+        # Validate the password from UserPasswords table
         cursor.execute("SELECT passwordHash FROM UserPasswords WHERE userId = %s", (user_id,))
         pass_row = cursor.fetchone()
 
         if pass_row and pass_row[0] == hashed_password:
             # Successful login
-            session['username'] = username
+            session['username'] = username_or_email  # Store username or email in session
             flash("Welcome back!", "success")
             cursor.close()
             conn.close()
             return redirect("/welcome")
         else:
-            # Password does not match or no record in UserPasswords
-            flash("Invalid username or password", "danger")
+            flash("Invalid username/email or password", "danger")
 
         cursor.close()
         conn.close()
 
     return render_template("login.html")
-
 
 # ----------------------------------
 # WELCOME
@@ -112,6 +135,7 @@ def signup():
     """
     if request.method == "POST":
         username = request.form['username']
+        email = request.form['email']  # New email field
         password = request.form['password']
 
         # Hash the password using SHA-256
@@ -125,7 +149,7 @@ def signup():
             cursor.execute("""
                 INSERT INTO Users (userName, emailAddress, userRole)
                 VALUES (%s, %s, %s)
-            """, (username, f"{username}@example.com", 'normal'))
+            """, (username, email, 'normal'))
             
             # 2) Get the auto-incremented userId
             new_user_id = cursor.lastrowid
@@ -138,12 +162,12 @@ def signup():
 
             conn.commit()
             flash("Account created successfully! Please log in.", "success")
-            return redirect("/")
+            return redirect("/login")
 
         except mysql.connector.Error as err:
             # Handle duplicate entries or other SQL errors
             if err.errno == mysql.connector.errorcode.ER_DUP_ENTRY:
-                flash("Username already exists. Please choose a different username.", "danger")
+                flash("Username or email already exists. Please choose different ones.", "danger")
             else:
                 flash(f"Error: {err}", "danger")
 

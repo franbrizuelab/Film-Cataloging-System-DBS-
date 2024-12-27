@@ -1,0 +1,13 @@
+--Load data into the Users Table
+
+LOAD DATA INFILE '/var/lib/mysql-files/ArtificialUserInformation/Users.csv'
+        INTO TABLE Users
+        FIELDS TERMINATED BY ','
+        ENCLOSED BY '"'
+        LINES TERMINATED BY '\n'
+        IGNORE 1 ROWS
+        (userId, userName, emailAddress, @userRole)
+        SET userRole = CASE
+            WHEN @userRole IN ('normal', 'moderator', 'admin') THEN @userRole
+            ELSE 'normal'
+        END;
